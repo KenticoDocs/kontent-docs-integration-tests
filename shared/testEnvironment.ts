@@ -3,24 +3,50 @@ import {
     ContentTypeModels,
     ElementModels,
     TaxonomyModels,
-} from "kentico-cloud-content-management";
+} from 'kentico-cloud-content-management';
 import {
     getLiveKenticoClient,
     getTestKenticoClient,
-} from "../external/kenticoClients";
+} from '../external/kenticoClients';
+import { Types } from './constants';
+import {
+    addContentItem,
+    publishDefaultLanguageVariant,
+    upsertDefaultLanguageVariant,
+} from './kenticoCloudHelper';
+import {
+    itemVariants,
+    topic,
+} from './requiredWebItems';
+import ContentItem = ContentItemModels.ContentItem;
+
+const typesPublishedInSetup = [
+    Types.Author,
+    Types.Footer,
+    Types.Scenario,
+    Types.UImessages,
+    Types.NavigationItem,
+    Types.Home,
+];
+
+const webCompulsoryContentTypes = [
+    Types.Topic,
+    ...typesPublishedInSetup,
+];
 
 const codenamesOfContentTypesToCopy = [
-    "article",
-    "callout",
-    "content_chunk",
-    "scenario",
-    "code_sample",
-    "code_samples",
+    Types.Article,
+    Types.Callout,
+    Types.CodeSample,
+    Types.CodeSamples,
+    Types.ContentChunk,
+    ...webCompulsoryContentTypes,
 ];
 
 export interface IEnvironmentContext {
     readonly taxonomies: ITaxonomyLookup;
     readonly types: IContentTypeLookup;
+    readonly items: ContentItem[];
 }
 
 interface ITaxonomyLookup {
@@ -31,18 +57,36 @@ interface IContentTypeLookup {
     [codename: string]: ContentTypeModels.ContentType;
 }
 
+interface ITitleElement extends ElementModels.ElementModel {
+    external_id?: string;
+}
+
+interface IUrlSlugElement extends ElementModels.ElementModel {
+    depends_on?: {
+        element: {
+            external_id: string;
+        },
+    };
+}
+
 export const setupEnvironment = async (): Promise<IEnvironmentContext> => {
     const destinationTaxonomies = await copyTaxonomies();
     const destinationTypes = await copyTypes(destinationTaxonomies);
+    const destinationItems = await createWebCompulsoryItems();
 
     return {
+        items: destinationItems,
         taxonomies: destinationTaxonomies,
         types: destinationTypes,
     };
 };
 
-export const tearDownEnviroment = async (context: IEnvironmentContext): Promise<void> => {
-    const typeIds = Object.keys(context.types).map((key: string) => context.types[key].id);
+export const tearDownEnvironment = async (context: IEnvironmentContext): Promise<void> => {
+    const typeIds = Object
+        .keys(context.types)
+        .map((key: string) => context.types[key].id)
+        // make sure we don't start with deleting article content type: last deleted item is an article
+        .reverse();
 
     await deleteContentItems(typeIds);
     await deleteContentTypes(typeIds);
@@ -70,18 +114,15 @@ const copyTaxonomies = async (): Promise<ITaxonomyLookup> => {
 };
 
 const copyTypes = async (destinationTaxonomies: ITaxonomyLookup): Promise<IContentTypeLookup> => {
-    const client = getLiveKenticoClient();
     const destinationTypes: IContentTypeLookup = {};
 
     for (const codename of codenamesOfContentTypesToCopy) {
-        await client
+        await getLiveKenticoClient()
             .viewContentType()
             .byTypeCodename(codename)
             .toPromise()
             .then(async (response) => {
-                const createdType = await addContentType(response.rawData, destinationTaxonomies);
-                destinationTypes[codename] = createdType;
-
+                destinationTypes[codename] = await addContentType(response.rawData, destinationTaxonomies);
             });
     }
 
@@ -106,27 +147,62 @@ const processContentType = (
     contentType: ContentTypeModels.ContentType,
     destinationTaxonomies: ITaxonomyLookup,
 ): ContentTypeModels.ContentType => {
-    contentType.elements = contentType
-        .elements
-        .filter((element: ElementModels.ElementModel) =>
-            element.type !== ElementModels.ElementType.urlSlug);
-
-    contentType.elements = contentType.elements.map((element: any) => {
-        switch (element.type) {
-            case ElementModels.ElementType.taxonomy:
-                return {
-                    guidelines: element.guidelines,
-                    taxonomy_group: {
-                        id: destinationTaxonomies[element.taxonomy_group.id].id,
-                    },
-                    type: ElementModels.ElementType.taxonomy,
-                };
-            default:
-                return element;
+    // @ts-ignore
+    contentType.elements = contentType.elements.map((element) => {
+        if (element.type === ElementModels.ElementType.taxonomy) {
+            return {
+                guidelines: element.guidelines,
+                taxonomy_group: {
+                    id: destinationTaxonomies[element.taxonomy_group.id].id,
+                },
+                type: ElementModels.ElementType.taxonomy,
+            };
+        } else {
+            return element;
         }
     });
 
+    resolveUrlSlugElementDependency(contentType);
+
     return contentType;
+};
+
+const resolveUrlSlugElementDependency = (contentType: ContentTypeModels.ContentType): void => {
+    const titleElement: ITitleElement | undefined = getElementWithCodename(contentType, 'title');
+    const urlElement: IUrlSlugElement | undefined = getElementWithCodename(contentType, 'url');
+
+    if (urlElement && titleElement) {
+        titleElement.external_id = titleElement.id + '-external';
+
+        if (urlElement.depends_on && urlElement.depends_on.element) {
+            urlElement.depends_on.element = {
+                external_id: titleElement.external_id,
+            };
+        }
+    }
+};
+
+const getElementWithCodename = (contentType: ContentTypeModels.ContentType, codename: string) =>
+    contentType.elements.find((element) => element.codename === codename);
+
+const createWebCompulsoryItems = async (): Promise<ContentItem[]> => {
+    const items = [] as ContentItem[];
+    for (const type of webCompulsoryContentTypes) {
+        const item = await addContentItem(type, type);
+        const variant = itemVariants.get(item.codename);
+
+        if (variant !== undefined) {
+            await upsertDefaultLanguageVariant(item.id, variant);
+        }
+
+        if (item.codename !== 'topic') {
+            await publishDefaultLanguageVariant(item.id);
+        }
+
+        items.push(item);
+    }
+
+    return items;
 };
 
 const deleteTaxonomyGroups = async (context: IEnvironmentContext): Promise<void> => {

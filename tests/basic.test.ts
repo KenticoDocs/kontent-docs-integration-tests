@@ -1,7 +1,32 @@
+import { ContentItemModels } from 'kentico-cloud-content-management';
+import {
+    Builder,
+    By,
+    WebDriver,
+} from 'selenium-webdriver';
+import { Options } from 'selenium-webdriver/chrome';
+import { triggerPublisher } from '../external/triggerPublisher';
 import {
     assertSearchRecordWithRetry,
     assertSearchWithRetry,
-} from "../shared/assertWithRetry";
+} from '../shared/assertWithRetry';
+import {
+    IdAttributes,
+    Types,
+} from '../shared/constants';
+import {
+    assertContentOnWeb,
+    assertNoSuggestions,
+    findElementWithRetry,
+    getExpectedUrl,
+    getValuesAfterSearchingOnWeb,
+    IExpectedValues,
+    insertArticleToTopic,
+    insertScenarioToNavigationItem,
+    refreshPage,
+    typeIntoSearchInput,
+    waitForUrlMapCacheUpdate,
+} from '../shared/helpers';
 import {
     addContentItem,
     createNewVersionOfDefaultLanguageVariant,
@@ -10,181 +35,281 @@ import {
     setDefaultLanguageVariantToCascadePublishStep,
     unpublishDefaultLanguageVariant,
     upsertDefaultLanguageVariant,
-} from "../shared/kenticoCloudHelper";
-import { randomize } from "../shared/randomize";
+} from '../shared/kenticoCloudHelper';
+import { WEB_URL } from '../shared/projectSettings';
+import { randomize } from '../shared/randomize';
 import {
     IEnvironmentContext,
     setupEnvironment,
-    tearDownEnviroment,
-} from "../shared/testEnvironment";
-import { triggerPublisher } from "../external/triggerPublisher";
+    tearDownEnvironment,
+} from '../shared/testEnvironment';
+import ContentItem = ContentItemModels.ContentItem;
 
-jest.setTimeout(300000);
+require('chromedriver');
+
+jest.setTimeout(420000);
 
 let context: IEnvironmentContext;
+let driver: WebDriver;
 
 beforeAll(async () => {
     context = await setupEnvironment();
+    driver = await new Builder()
+        .forBrowser('chrome')
+        .setChromeOptions(new Options()
+            .headless()
+            .addArguments(
+                '--disk-cache-dir=null',
+                '--disable-application-cache',
+            ),
+        )
+        .build();
 });
 
 afterAll(async () => {
-    await tearDownEnviroment(context);
+    await tearDownEnvironment(context);
+    await driver.quit();
 });
 
-test("Search content of published article", async () => {
-    const textToSearch = randomize("article_content");
-    const title = randomize("title");
+beforeEach(async () => {
+    await driver.get(WEB_URL);
+});
 
-    const item = await addContentItem(`Test 1 article (${textToSearch})`, context.types.article.codename);
-    await upsertDefaultLanguageVariant(item.id, [
+test('Search content of published article', async () => {
+    const textToSearch = randomize('article_content');
+    const title = randomize('title');
+    const heading = randomize('heading');
+    const content = `Some random text: ${textToSearch}.`;
+    const expectedValues: IExpectedValues = {
+        content,
+        expectedUrl: getExpectedUrl(Types.Article, title, heading),
+        heading,
+    };
+
+    const article = await addContentItem(`Test 1 article (${textToSearch})`, context.types.article.codename);
+    await upsertDefaultLanguageVariant(article.id, [
         {
             element: {
-                codename: "title",
+                codename: 'title',
             },
             value: title,
         },
         {
             element: {
-                codename: "content",
+                codename: 'content',
             },
-            value: `<p>Some random text: ${textToSearch}.</p>`,
+            value: `<h2>${heading}</h2><p>${content}</p>`,
         },
     ]);
-    await publishDefaultLanguageVariant(item.id);
+
+    const topic = await insertArticleToTopic(article, context);
+
+    await publishDefaultLanguageVariant(topic.id);
+    await publishDefaultLanguageVariant(article.id);
 
     await assertSearchRecordWithRetry(textToSearch, {
-        codename: item.codename,
-        content: `Some random text: ${textToSearch}.`,
-        id: item.id,
+        codename: article.codename,
+        content,
+        id: article.id,
         title,
     });
+
+    await waitForUrlMapCacheUpdate(driver, article.codename);
+    const actualValues = await getValuesAfterSearchingOnWeb(driver, expectedValues.expectedUrl, textToSearch);
+
+    assertContentOnWeb(actualValues, expectedValues);
 });
 
-test("Search introduction of published article", async () => {
-    const textToSearch = randomize("article_introduction");
-    const title = randomize("title");
+test('Search introduction of published article', async () => {
+    const textToSearch = randomize('article_introduction');
+    const title = randomize('title');
+    const content = `Some random text: ${textToSearch}.`;
+    const expectedValues: IExpectedValues = {
+        content,
+        expectedUrl: getExpectedUrl(Types.Article, title),
+        heading: '',
+    };
 
-    const item = await addContentItem(`Test 2 article (${textToSearch})`, context.types.article.codename);
-    await upsertDefaultLanguageVariant(item.id, [
+    const article = await addContentItem(`Test 2 article (${textToSearch})`, context.types.article.codename);
+    await upsertDefaultLanguageVariant(article.id, [
         {
             element: {
-                codename: "title",
+                codename: 'title',
             },
             value: title,
         },
         {
             element: {
-                codename: "introduction",
+                codename: 'introduction',
             },
-            value: `<p>Some random text: ${textToSearch}.</p>`,
+            value: `<p>${content}</p>`,
         },
     ]);
-    await publishDefaultLanguageVariant(item.id);
+    const topic = await insertArticleToTopic(article, context);
+
+    await publishDefaultLanguageVariant(article.id);
+    await publishDefaultLanguageVariant(topic.id);
 
     await assertSearchRecordWithRetry(textToSearch, {
-        codename: item.codename,
-        content: `Some random text: ${textToSearch}.`,
-        id: item.id,
+        codename: article.codename,
+        content,
+        id: article.id,
         title,
     });
+
+    await waitForUrlMapCacheUpdate(driver, article.codename);
+    const actualValues = await getValuesAfterSearchingOnWeb(driver, expectedValues.expectedUrl, textToSearch);
+
+    assertContentOnWeb(actualValues, expectedValues);
 });
 
-test("Search content of published scenario", async () => {
-    const textToSearch = randomize("scenario_content");
-    const title = randomize("title");
+test('Search content of published scenario', async () => {
+    const textToSearch = randomize('scenario_content');
+    const title = randomize('title');
+    const content = `Some random text: ${textToSearch}.`;
+    const expectedValues: IExpectedValues = {
+        content,
+        expectedUrl: getExpectedUrl(Types.Scenario, title),
+        heading: '',
+    };
 
-    const item = await addContentItem(`Test 3 scenario (${textToSearch})`, context.types.scenario.codename);
-    await upsertDefaultLanguageVariant(item.id, [
+    const scenario = await addContentItem(`Test 3 scenario (${textToSearch})`, context.types.scenario.codename);
+    await upsertDefaultLanguageVariant(scenario.id, [
         {
             element: {
-                codename: "title",
+                codename: 'title',
             },
             value: title,
         },
         {
             element: {
-                codename: "content",
+                codename: 'content',
             },
-            value: `<p>Some random text: ${textToSearch}.</p>`,
+            value: `<p>${content}</p>`,
         },
     ]);
-    await publishDefaultLanguageVariant(item.id);
+    const navigationItem = await insertScenarioToNavigationItem(scenario, context);
+
+    await publishDefaultLanguageVariant(scenario.id);
+    await publishDefaultLanguageVariant(navigationItem.id);
 
     await assertSearchRecordWithRetry(textToSearch, {
-        codename: item.codename,
-        content: `Some random text: ${textToSearch}.`,
-        id: item.id,
+        codename: scenario.codename,
+        content,
+        id: scenario.id,
         title,
     });
+
+    await waitForUrlMapCacheUpdate(driver, scenario.codename);
+    const actualValues = await getValuesAfterSearchingOnWeb(driver, expectedValues.expectedUrl, textToSearch);
+
+    assertContentOnWeb(actualValues, expectedValues);
 });
 
-test("Search introduction of published scenario", async () => {
-    const textToSearch = randomize("scenario_introduction");
-    const title = randomize("title");
+test('Search introduction of published scenario', async () => {
+    const textToSearch = randomize('scenario_introduction');
+    const title = randomize('title');
+    const introduction = `Some random text: ${textToSearch}.`;
+    const expectedValues: IExpectedValues = {
+        content: introduction,
+        expectedUrl: getExpectedUrl(Types.Scenario, title),
+        heading: '',
+    };
 
-    const item = await addContentItem(`Test 4 scenario (${textToSearch})`, context.types.scenario.codename);
-    await upsertDefaultLanguageVariant(item.id, [
+    const scenario = await addContentItem(`Test 4 scenario (${textToSearch})`, context.types.scenario.codename);
+    await upsertDefaultLanguageVariant(scenario.id, [
         {
             element: {
-                codename: "title",
+                codename: 'title',
             },
             value: title,
         },
         {
             element: {
-                codename: "introduction",
+                codename: 'introduction',
             },
-            value: `<p>Some random text: ${textToSearch}.</p>`,
+            value: `<p>${introduction}</p>`,
         },
     ]);
-    await publishDefaultLanguageVariant(item.id);
+    const navigationItem = await insertScenarioToNavigationItem(scenario, context);
+
+    await publishDefaultLanguageVariant(scenario.id);
+    await publishDefaultLanguageVariant(navigationItem.id);
 
     await assertSearchRecordWithRetry(textToSearch, {
-        codename: item.codename,
-        content: `Some random text: ${textToSearch}.`,
-        id: item.id,
+        codename: scenario.codename,
+        content: introduction,
+        id: scenario.id,
         title,
     });
+
+    await waitForUrlMapCacheUpdate(driver, scenario.codename);
+    const actualValues = await getValuesAfterSearchingOnWeb(driver, expectedValues.expectedUrl, textToSearch);
+
+    assertContentOnWeb(actualValues, expectedValues);
 });
 
-test("Search title of published article", async () => {
-    const textToSearch = randomize("article_title");
+test('Search title of published article', async () => {
+    const textToSearch = randomize('article_title');
+    const content = 'Some random text';
+    const expectedValues: IExpectedValues = {
+        content,
+        expectedUrl: getExpectedUrl(Types.Article, textToSearch),
+        heading: '',
+    };
 
-    const item = await addContentItem(`Test 5 article (${textToSearch})`, context.types.article.codename);
-    await upsertDefaultLanguageVariant(item.id, [
+    const article = await addContentItem(`Test 5 article (${textToSearch})`, context.types.article.codename);
+    await upsertDefaultLanguageVariant(article.id, [
         {
             element: {
-                codename: "title",
+                codename: 'title',
             },
-            value: `Test Article (${textToSearch})`,
+            value: textToSearch,
         },
         {
             element: {
-                codename: "content",
+                codename: 'content',
             },
-            value: `<p>Some random text</p>`,
+            value: `<p>${content}</p>`,
         },
     ]);
-    await publishDefaultLanguageVariant(item.id);
+    const topic = await insertArticleToTopic(article, context);
+    const navigationItem = await insertScenarioToNavigationItem({ codename: 'scenario' } as ContentItem, context);
+
+    await publishDefaultLanguageVariant(article.id);
+    await publishDefaultLanguageVariant(topic.id);
+    await publishDefaultLanguageVariant(navigationItem.id);
 
     await assertSearchRecordWithRetry(textToSearch, {
-        codename: item.codename,
-        content: "Some random text",
-        id: item.id,
-        title: `Test Article (${textToSearch})`,
+        codename: article.codename,
+        content,
+        id: article.id,
+        title: textToSearch,
     });
+
+    await waitForUrlMapCacheUpdate(driver, article.codename);
+    const actualValues = await getValuesAfterSearchingOnWeb(driver, expectedValues.expectedUrl, textToSearch);
+
+    assertContentOnWeb(actualValues, expectedValues);
 });
 
-test("Search content of a callout within an article", async () => {
-    const textToSearch = randomize("test_6");
+test('Search content of a callout within an article', async () => {
+    const textToSearch = randomize('test_6');
+    const content = `Some random text in callout: ${textToSearch}`;
+    const title = randomize('title');
+    const expectedValues: IExpectedValues = {
+        content,
+        expectedUrl: getExpectedUrl(Types.Article, title),
+        heading: '',
+    };
 
     const callout = await addContentItem(`Test 6 Callout (${textToSearch})`, context.types.callout.codename);
     await upsertDefaultLanguageVariant(callout.id, [
         {
             element: {
-                codename: "content",
+                codename: 'content',
             },
-            value: `<p>Some random text in callout: ${textToSearch}.</p>`,
+            value: `<p>${content}</p>`,
         },
     ]);
     await publishDefaultLanguageVariant(callout.id);
@@ -193,39 +318,55 @@ test("Search content of a callout within an article", async () => {
     await upsertDefaultLanguageVariant(article.id, [
         {
             element: {
-                codename: "title",
+                codename: 'title',
             },
-            value: "Test Article (tlhkvctfwx)",
+            value: title,
         },
         {
             element: {
-                codename: "content",
+                codename: 'content',
             },
             value: `<p>Some content </p><object type=\"application/kenticocloud\" ` +
-                    `data-type=\"item\" data-id=\"${callout.id}\"></object>`,
+                `data-type=\"item\" data-id=\"${callout.id}\"></object>`,
         },
     ]);
+
+    const topic = await insertArticleToTopic(article, context);
+
     await publishDefaultLanguageVariant(article.id);
+    await publishDefaultLanguageVariant(topic.id);
 
     await assertSearchRecordWithRetry(textToSearch, {
         codename: article.codename,
-        content: `Some random text in callout: ${textToSearch}.`,
+        content,
         id: article.id,
-        title: "Test Article (tlhkvctfwx)",
+        title,
     });
+
+    await waitForUrlMapCacheUpdate(driver, article.codename);
+    const actualValues = await getValuesAfterSearchingOnWeb(driver, expectedValues.expectedUrl, textToSearch);
+
+    assertContentOnWeb(actualValues, expectedValues);
 });
 
-test("Search content of a content chunk within an article", async () => {
-    const textToSearch = randomize("test_7");
+test('Search content of a content chunk within an article', async () => {
+    const textToSearch = randomize('test_7');
+    const content = `Some random text in content chunk: ${textToSearch}.`;
+    const title = randomize('title');
+    const expectedValues: IExpectedValues = {
+        content,
+        expectedUrl: getExpectedUrl(Types.Article, title),
+        heading: '',
+    };
 
     const contentChunk =
         await addContentItem(`Test 7 Content Chunk (${textToSearch})`, context.types.content_chunk.codename);
     await upsertDefaultLanguageVariant(contentChunk.id, [
         {
             element: {
-                codename: "content",
+                codename: 'content',
             },
-            value: `<p>Some random text in content chunk: ${textToSearch}.</p>`,
+            value: `<p>${content}</p>`,
         },
     ]);
     await publishDefaultLanguageVariant(contentChunk.id);
@@ -234,99 +375,158 @@ test("Search content of a content chunk within an article", async () => {
     await upsertDefaultLanguageVariant(article.id, [
         {
             element: {
-                codename: "title",
-            },
-            value: "Test Article (8uw2u7qgww)",
-        },
-        {
-            element: {
-                codename: "content",
-            },
-            value: `<p>Some content: </p><object type=\"application/kenticocloud\" ` +
-                    `data-type=\"item\" data-id=\"${contentChunk.id}\"></object>`,
-        },
-    ]);
-    await publishDefaultLanguageVariant(article.id);
-
-    await assertSearchRecordWithRetry(textToSearch, {
-        codename: article.codename,
-        content: `Some random text in content chunk: ${textToSearch}.`,
-        id: article.id,
-        title: "Test Article (8uw2u7qgww)",
-    });
-});
-
-test("Saga: Publish, unpublish, create new version", async () => {
-    const textToSearch = randomize("test_8");
-    const title = randomize("title");
-
-    const item = await addContentItem(`Test 8 article (${textToSearch})`, context.types.article.codename);
-    await upsertDefaultLanguageVariant(item.id, [
-        {
-            element: {
-                codename: "title",
+                codename: 'title',
             },
             value: title,
         },
         {
             element: {
-                codename: "content",
+                codename: 'content',
             },
-            value: `<p>Some random text: ${textToSearch}.</p>`,
+            value: `<p>Some content: </p><object type=\"application/kenticocloud\" ` +
+                `data-type=\"item\" data-id=\"${contentChunk.id}\"></object>`,
         },
     ]);
 
-    await publishDefaultLanguageVariant(item.id);
+    const topic = await insertArticleToTopic(article, context);
+
+    await publishDefaultLanguageVariant(article.id);
+    await publishDefaultLanguageVariant(topic.id);
+
     await assertSearchRecordWithRetry(textToSearch, {
-        codename: item.codename,
-        content: `Some random text: ${textToSearch}.`,
-        id: item.id,
+        codename: article.codename,
+        content,
+        id: article.id,
         title,
-    }, "Search published article");
+    });
 
-    await unpublishDefaultLanguageVariant(item.id);
-    await assertSearchWithRetry(textToSearch, 0, "Search unpublished article");
+    await waitForUrlMapCacheUpdate(driver, article.codename);
+    const actualValues = await getValuesAfterSearchingOnWeb(driver, expectedValues.expectedUrl, textToSearch);
 
-    await publishDefaultLanguageVariant(item.id);
-    await assertSearchWithRetry(textToSearch, 1, "Search once more published article");
-
-    const updatedTextToSearch = randomize("test_8");
-    await createNewVersionOfDefaultLanguageVariant(item.id);
-    await upsertDefaultLanguageVariant(item.id, [
-        {
-            element: {
-                codename: "content",
-            },
-            value: `<p>Some random text: ${updatedTextToSearch}.</p>`,
-        },
-    ]);
-
-    await publishDefaultLanguageVariant(item.id);
-    await assertSearchWithRetry(updatedTextToSearch, 1, "Search updated article");
+    assertContentOnWeb(actualValues, expectedValues);
 });
 
-test("Saga: Search content of a hierarchical article using cascade publish", async () => {
-    const calloutText = randomize("test_9");
+test('Saga: Publish, unpublish, create new version', async () => {
+    const textToSearch = randomize('test_8');
+    const title = randomize('title');
+    const content = `Some random text: ${textToSearch}.`;
+    const expectedValues: IExpectedValues = {
+        content,
+        expectedUrl: getExpectedUrl(Types.Article, title),
+        heading: '',
+    };
+
+    const article = await addContentItem(`Test 8 article (${textToSearch})`, context.types.article.codename);
+    await upsertDefaultLanguageVariant(article.id, [
+        {
+            element: {
+                codename: 'title',
+            },
+            value: title,
+        },
+        {
+            element: {
+                codename: 'content',
+            },
+            value: `<p>${content}</p>`,
+        },
+    ]);
+
+    const topic = await insertArticleToTopic(article, context);
+
+    await publishDefaultLanguageVariant(article.id);
+    await publishDefaultLanguageVariant(topic.id);
+
+    await assertSearchRecordWithRetry(textToSearch, {
+        codename: article.codename,
+        content,
+        id: article.id,
+        title,
+    }, 'Search published article');
+
+    await waitForUrlMapCacheUpdate(driver, article.codename);
+    const actualValuesFirstPublish =
+        await getValuesAfterSearchingOnWeb(driver, expectedValues.expectedUrl, textToSearch);
+
+    assertContentOnWeb(actualValuesFirstPublish, expectedValues);
+
+    await unpublishDefaultLanguageVariant(article.id);
+    await assertSearchWithRetry(textToSearch, 0, 'Search unpublished article');
+
+    await driver.get(WEB_URL);
+    const searchInput = await findElementWithRetry(driver, By.id(IdAttributes.Search));
+
+    await typeIntoSearchInput(textToSearch, searchInput, driver);
+    await assertNoSuggestions(driver);
+
+    await publishDefaultLanguageVariant(article.id);
+    await assertSearchWithRetry(textToSearch, 1, 'Search once more published article');
+
+    await refreshPage(driver);
+
+    await waitForUrlMapCacheUpdate(driver, article.codename);
+    const actualValuesSecondPublish =
+        await getValuesAfterSearchingOnWeb(driver, expectedValues.expectedUrl, textToSearch);
+
+    assertContentOnWeb(actualValuesSecondPublish, expectedValues);
+    await driver.get(WEB_URL);
+
+    const updatedTextToSearch = randomize('test_8');
+    const updatedArticleContent = `Some random text: ${updatedTextToSearch}.`;
+
+    await createNewVersionOfDefaultLanguageVariant(article.id);
+    await upsertDefaultLanguageVariant(article.id, [
+        {
+            element: {
+                codename: 'content',
+            },
+            value: `<p>${updatedArticleContent}</p>`,
+        },
+    ]);
+
+    await publishDefaultLanguageVariant(article.id);
+    await assertSearchWithRetry(updatedTextToSearch, 1, 'Search updated article');
+
+    expectedValues.content = updatedArticleContent;
+
+    await waitForUrlMapCacheUpdate(driver, article.codename);
+    const actualValuesThirdPublish =
+        await getValuesAfterSearchingOnWeb(driver, expectedValues.expectedUrl, updatedTextToSearch);
+
+    assertContentOnWeb(actualValuesThirdPublish, expectedValues);
+});
+
+test('Saga: Search content of a hierarchical article using cascade publish', async () => {
+    const calloutText = randomize('test_9');
+    const title = randomize('title');
+    const content = `Some random text in callout: ${calloutText}.`;
+    const expectedValues: IExpectedValues = {
+        content,
+        expectedUrl: getExpectedUrl(Types.Article, title),
+        heading: '',
+    };
+
     const callout = await addContentItem(`Test 9 Callout (${calloutText})`, context.types.callout.codename);
     await upsertDefaultLanguageVariant(callout.id, [
         {
             element: {
-                codename: "content",
+                codename: 'content',
             },
-            value: `<p>Some random text in callout: ${calloutText}.</p>`,
+            value: `<p>${content}</p>`,
         },
     ]);
 
-    const contentChunkText = randomize("test_9");
+    const contentChunkText = randomize('test_9');
+    const contentChunkContent = `Some random text in content chunk: ${contentChunkText}.`;
     const contentChunk =
         await addContentItem(`Test 9 Content Chunk (${contentChunkText})`, context.types.content_chunk.codename);
     await upsertDefaultLanguageVariant(contentChunk.id, [
         {
             element: {
-                codename: "content",
+                codename: 'content',
             },
-            value: `<p>Some random text in content chunk: ${contentChunkText}.</p>` +
-            `<object type=\"application/kenticocloud\" data-type=\"item\" data-id=\"${callout.id}\"></object>`,
+            value: `<p>${contentChunkContent}</p>` +
+                `<object type=\"application/kenticocloud\" data-type=\"item\" data-id=\"${callout.id}\"></object>`,
         },
     ]);
 
@@ -334,101 +534,171 @@ test("Saga: Search content of a hierarchical article using cascade publish", asy
     await upsertDefaultLanguageVariant(article.id, [
         {
             element: {
-                codename: "title",
+                codename: 'title',
             },
-            value: "Test Article (8uw2u7qgww)",
+            value: title,
         },
         {
             element: {
-                codename: "content",
-            },
-            value: `<p>Some content: </p><object type=\"application/kenticocloud\" ` +
-                    `data-type=\"item\" data-id=\"${contentChunk.id}\"></object>`,
-        },
-    ]);
-
-    await setDefaultLanguageVariantToCascadePublishStep(article.id);
-    await triggerPublisher();
-
-    await assertSearchRecordWithRetry(calloutText, {
-        codename: article.codename,
-        content: `Some random text in callout: ${calloutText}.`,
-        id: article.id,
-        title: "Test Article (8uw2u7qgww)",
-    }, "Search by callout text should return a hit.");
-
-    await assertSearchRecordWithRetry(contentChunkText, {
-        codename: article.codename,
-        content: `Some random text in content chunk: ${contentChunkText}.`,
-        id: article.id,
-        title: "Test Article (8uw2u7qgww)",
-    }, "Search by content chunk text should return a hit.");
-
-    await unpublishDefaultLanguageVariant(contentChunk.id);
-    await assertSearchWithRetry(contentChunkText, 0, "Search by content chunk text shouldn't return a hit.");
-    await assertSearchWithRetry(calloutText, 0, "Search by callout text shouldn't return a hit.");
-});
-
-test("Saga: Search content of a hierarchical article using scheduled publish", async () => {
-    const calloutText = randomize("test_10");
-    const callout = await addContentItem(`Test 10 Callout (${calloutText})`, context.types.callout.codename);
-    await upsertDefaultLanguageVariant(callout.id, [
-        {
-            element: {
-                codename: "content",
-            },
-            value: `<p>Some random text in callout: ${calloutText}.</p>`,
-        },
-    ]);
-
-    const contentChunkText = randomize("test_10");
-    const contentChunk =
-        await addContentItem(`Test 10 Content Chunk (${contentChunkText})`, context.types.content_chunk.codename);
-    await upsertDefaultLanguageVariant(contentChunk.id, [
-        {
-            element: {
-                codename: "content",
-            },
-            value: `<p>Some random text in content chunk: ${contentChunkText}.</p>` +
-                `<object type=\"application/kenticocloud\" data-type=\"item\" data-id=\"${callout.id}\"></object>`,
-        },
-    ]);
-
-    const article = await addContentItem(`Test 10 article (8uw2u7gfgf)`, context.types.article.codename);
-    await upsertDefaultLanguageVariant(article.id, [
-        {
-            element: {
-                codename: "title",
-            },
-            value: "Test Article (8uw2u7gfgf)",
-        },
-        {
-            element: {
-                codename: "content",
+                codename: 'content',
             },
             value: `<p>Some content: </p><object type=\"application/kenticocloud\" ` +
                 `data-type=\"item\" data-id=\"${contentChunk.id}\"></object>`,
         },
     ]);
 
-    await scheduleDefaultLanguageVariant(article.id);
+    const topic = await insertArticleToTopic(article, context);
+
+    await setDefaultLanguageVariantToCascadePublishStep(article.id);
     await triggerPublisher();
+    await publishDefaultLanguageVariant(topic.id);
 
     await assertSearchRecordWithRetry(calloutText, {
         codename: article.codename,
         content: `Some random text in callout: ${calloutText}.`,
         id: article.id,
-        title: "Test Article (8uw2u7gfgf)",
-    }, "Search by callout text should return a hit.");
+        title,
+    }, 'Search by callout text should return a hit.');
 
     await assertSearchRecordWithRetry(contentChunkText, {
         codename: article.codename,
         content: `Some random text in content chunk: ${contentChunkText}.`,
         id: article.id,
-        title: "Test Article (8uw2u7gfgf)",
-    }, "Search by content chunk text should return a hit.");
+        title,
+    }, 'Search by content chunk text should return a hit.');
+
+    await waitForUrlMapCacheUpdate(driver, article.codename);
+    const actualCalloutValues = await getValuesAfterSearchingOnWeb(driver, expectedValues.expectedUrl, calloutText);
+
+    assertContentOnWeb(actualCalloutValues, expectedValues);
+
+    await driver.get(WEB_URL);
+
+    await waitForUrlMapCacheUpdate(driver, article.codename);
+    const actualContentChunkValues =
+        await getValuesAfterSearchingOnWeb(driver, expectedValues.expectedUrl, contentChunkText);
+
+    expectedValues.content = contentChunkContent;
+
+    assertContentOnWeb(actualContentChunkValues, expectedValues);
 
     await unpublishDefaultLanguageVariant(contentChunk.id);
-    await assertSearchWithRetry(contentChunkText, 0, "Search by content chunk text shouldn't return a hit.");
-    await assertSearchWithRetry(calloutText, 0, "Search by callout text shouldn't return a hit.");
+    await assertSearchWithRetry(contentChunkText, 0, 'Search by content chunk text shouldn\'t return a hit.');
+    await assertSearchWithRetry(calloutText, 0, 'Search by callout text shouldn\'t return a hit.');
+
+    await driver.get(WEB_URL);
+    let searchInput = await findElementWithRetry(driver, By.id(IdAttributes.Search));
+
+    await typeIntoSearchInput(contentChunkText, searchInput, driver);
+    await assertNoSuggestions(driver);
+
+    await refreshPage(driver);
+    searchInput = await findElementWithRetry(driver, By.id(IdAttributes.Search));
+
+    await typeIntoSearchInput(calloutText, searchInput, driver);
+    await assertNoSuggestions(driver);
+});
+
+test('Saga: Search content of a hierarchical article using scheduled publish', async () => {
+    const calloutText = randomize('test_10');
+    const title = randomize('title');
+    const content = `Some random text in callout: ${calloutText}.`;
+    const expectedValues: IExpectedValues = {
+        content,
+        expectedUrl: getExpectedUrl(Types.Article, title),
+        heading: '',
+    };
+
+    const callout = await addContentItem(`Test 10 Callout (${calloutText})`, context.types.callout.codename);
+    await upsertDefaultLanguageVariant(callout.id, [
+        {
+            element: {
+                codename: 'content',
+            },
+            value: `<p>${content}</p>`,
+        },
+    ]);
+
+    const contentChunkText = randomize('test_10');
+    const contentChunkContent = `Some random text in content chunk: ${contentChunkText}.`;
+    const contentChunk =
+        await addContentItem(`Test 10 Content Chunk (${contentChunkText})`, context.types.content_chunk.codename);
+    await upsertDefaultLanguageVariant(contentChunk.id, [
+        {
+            element: {
+                codename: 'content',
+            },
+            value: `<p>${contentChunkContent}</p>` +
+                `<object type=\"application/kenticocloud\" data-type=\"item\" data-id=\"${callout.id}\"></object>`,
+        },
+    ]);
+
+    const article = await addContentItem(`Test 10 article (8uw2u7qgww)`, context.types.article.codename);
+    await upsertDefaultLanguageVariant(article.id, [
+        {
+            element: {
+                codename: 'title',
+            },
+            value: title,
+        },
+        {
+            element: {
+                codename: 'content',
+            },
+            value: `<p>Some content: </p><object type=\"application/kenticocloud\" ` +
+                `data-type=\"item\" data-id=\"${contentChunk.id}\"></object>`,
+        },
+    ]);
+
+    const topic = await insertArticleToTopic(article, context);
+
+    await scheduleDefaultLanguageVariant(article.id);
+    await triggerPublisher();
+    await publishDefaultLanguageVariant(topic.id);
+
+    await assertSearchRecordWithRetry(calloutText, {
+        codename: article.codename,
+        content: `Some random text in callout: ${calloutText}.`,
+        id: article.id,
+        title,
+    }, 'Search by callout text should return a hit.');
+
+    await assertSearchRecordWithRetry(contentChunkText, {
+        codename: article.codename,
+        content: `Some random text in content chunk: ${contentChunkText}.`,
+        id: article.id,
+        title,
+    }, 'Search by content chunk text should return a hit.');
+
+    await waitForUrlMapCacheUpdate(driver, article.codename);
+    const actualCalloutValues = await getValuesAfterSearchingOnWeb(driver, expectedValues.expectedUrl, calloutText);
+
+    assertContentOnWeb(actualCalloutValues, expectedValues);
+
+    await driver.get(WEB_URL);
+
+    await waitForUrlMapCacheUpdate(driver, article.codename);
+    const actualContentChunkValues =
+        await getValuesAfterSearchingOnWeb(driver, expectedValues.expectedUrl, contentChunkText);
+
+    expectedValues.content = contentChunkContent;
+
+    assertContentOnWeb(actualContentChunkValues, expectedValues);
+
+    await unpublishDefaultLanguageVariant(contentChunk.id);
+    await assertSearchWithRetry(contentChunkText, 0, 'Search by content chunk text shouldn\'t return a hit.');
+    await assertSearchWithRetry(calloutText, 0, 'Search by callout text shouldn\'t return a hit.');
+
+    await driver.get(WEB_URL);
+    let searchInput = await findElementWithRetry(driver, By.id(IdAttributes.Search));
+
+    await typeIntoSearchInput(contentChunkText, searchInput, driver);
+    await assertNoSuggestions(driver);
+
+    await refreshPage(driver);
+
+    searchInput = await findElementWithRetry(driver, By.id(IdAttributes.Search));
+
+    await typeIntoSearchInput(calloutText, searchInput, driver);
+    await assertNoSuggestions(driver);
 });

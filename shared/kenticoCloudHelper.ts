@@ -1,15 +1,15 @@
 import {
     ContentItemModels,
     LanguageVariantModels,
-} from "kentico-cloud-content-management";
-import { getTestKenticoClient } from "../external/kenticoClients";
-import { CASCADE_PUBLISH_ID } from "./projectSettings";
+} from 'kentico-cloud-content-management';
+import { getTestKenticoClient } from '../external/kenticoClients';
+import { CASCADE_PUBLISH_ID } from './projectSettings';
 
-const EmptyGuid: string = "00000000-0000-0000-0000-000000000000";
+const EmptyGuid: string = '00000000-0000-0000-0000-000000000000';
 
-export const publishDefaultLanguageVariant = async (itemId: string, scheduled_to?: string): Promise<void> => {
-    const timeData = scheduled_to
-        ? ({ scheduled_to })
+export const publishDefaultLanguageVariant = async (itemId: string, scheduledTo?: string): Promise<void> => {
+    const timeData = scheduledTo
+        ? ({scheduled_to: scheduledTo})
         : undefined as any;
 
     await getTestKenticoClient()
@@ -21,11 +21,11 @@ export const publishDefaultLanguageVariant = async (itemId: string, scheduled_to
 };
 
 export const scheduleDefaultLanguageVariant = async (itemId: string): Promise<void> => {
-    let date = new Date();
+    const date = new Date();
     date.setMinutes(date.getMinutes() + 2);
-    const scheduled_to = date.toISOString();
+    const scheduledTo = date.toISOString();
 
-    await publishDefaultLanguageVariant(itemId, scheduled_to);
+    await publishDefaultLanguageVariant(itemId, scheduledTo);
 };
 
 export const unpublishDefaultLanguageVariant = async (itemId: string): Promise<void> => {
@@ -81,3 +81,10 @@ export const upsertDefaultLanguageVariant = async (
 
     return response.data;
 };
+
+export const viewDefaultLanguageVariant = async (itemId: string) =>
+    getTestKenticoClient()
+        .viewLanguageVariant()
+        .byItemId(itemId)
+        .byLanguageId(EmptyGuid)
+        .toPromise();

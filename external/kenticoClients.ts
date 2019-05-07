@@ -2,8 +2,13 @@ import {
     ContentManagementClient,
     IContentManagementClient,
     IContentManagementClientConfig,
-} from "kentico-cloud-content-management";
-import { LIVE_API_KEY, LIVE_PROJECT_ID, TEST_API_KEY, TEST_PROJECT_ID } from "../shared/projectSettings";
+} from 'kentico-cloud-content-management';
+import {
+    LIVE_API_KEY,
+    LIVE_PROJECT_ID,
+    TEST_API_KEY,
+    TEST_PROJECT_ID,
+} from '../shared/projectSettings';
 
 let testKenticoClient: IContentManagementClient;
 let liveKenticoClient: IContentManagementClient;
