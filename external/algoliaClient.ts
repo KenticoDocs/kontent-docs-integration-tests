@@ -1,9 +1,9 @@
-import algoliasearch from "algoliasearch";
+import algoliasearch from 'algoliasearch';
 import {
     SEARCH_API_KEY,
     SEARCH_APP_ID,
     SEARCH_INDEX_NAME,
-} from "../shared/projectSettings";
+} from '../shared/projectSettings';
 
 const algoliaClient = algoliasearch(SEARCH_APP_ID, SEARCH_API_KEY);
 

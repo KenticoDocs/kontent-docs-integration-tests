@@ -1,5 +1,5 @@
-import retry from "async-retry";
-import { algoliaIndex } from "../external/algoliaClient";
+import retry from 'async-retry';
+import { algoliaIndex } from '../external/algoliaClient';
 
 interface ISearchRecord {
     readonly content: string;
@@ -11,7 +11,7 @@ interface ISearchRecord {
 export const assertSearchRecordWithRetry = async (
     textToSearch: string,
     expectedRecord: ISearchRecord,
-    message = "",
+    message = '',
 ): Promise<void> => {
     await assertWithRetry(async () => {
         const searchResponse = await algoliaIndex.search<ISearchRecord>(textToSearch);
@@ -21,7 +21,7 @@ export const assertSearchRecordWithRetry = async (
     });
 };
 
-export const assertSearchWithRetry = async (textToSearch: string, hits: number, message = ""): Promise<void> => {
+export const assertSearchWithRetry = async (textToSearch: string, hits: number, message = ''): Promise<void> => {
     await assertWithRetry(async () => {
         const searchResponse = await algoliaIndex.search<ISearchRecord>(textToSearch);
 

@@ -1,9 +1,21 @@
 sudo: required
 language: node_js
+dist: trusty
+addons:
+  chrome: stable
+      #- google-chrome-stable
+before_install:
+  - google-chrome-stable --headless --disable-gpu --remote-debugging-port=9222 http://localhost &
 node_js:
   - "10"
-script:
-  - travis_wait 45 yarn test --runInBand
+jobs:
+  include:
+    - stage: "Tests"
+      name: "TSLint"
+      script: "yarn tslint"
+    - stage: "Tests"
+      name: "Integration tests"
+      script: "travis_wait 45 yarn test --runInBand"
 
 notifications:
   webhooks: https://prod-73.westeurope.logic.azure.com:443/workflows/b40cfae8973245b0bf31a4ad224e9e6f/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=hIQg1np0SHai9RgG8LLbT_4-RozahYesRR6XtG-EyAA

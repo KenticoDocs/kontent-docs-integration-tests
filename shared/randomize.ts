@@ -1,4 +1,4 @@
-import randomstring from "randomstring";
+import randomstring from 'randomstring';
 
 export const randomize = (input: string): string => {
     const randomText = randomstring.generate({
