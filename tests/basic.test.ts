@@ -5,7 +5,6 @@ import {
     WebDriver,
 } from 'selenium-webdriver';
 import { Options } from 'selenium-webdriver/chrome';
-import { triggerPublisher } from '../external/triggerPublisher';
 import {
     assertSearchRecordWithRetry,
     assertSearchWithRetry,
@@ -550,7 +549,6 @@ test('Saga: Search content of a hierarchical article using cascade publish', asy
     const topic = await insertArticleToTopic(article, context);
 
     await setDefaultLanguageVariantToCascadePublishStep(article.id);
-    await triggerPublisher();
     await publishDefaultLanguageVariant(topic.id);
 
     await assertSearchRecordWithRetry(calloutText, {
@@ -653,7 +651,6 @@ test('Saga: Search content of a hierarchical article using scheduled publish', a
     const topic = await insertArticleToTopic(article, context);
 
     await scheduleDefaultLanguageVariant(article.id);
-    await triggerPublisher();
     await publishDefaultLanguageVariant(topic.id);
 
     await assertSearchRecordWithRetry(calloutText, {
