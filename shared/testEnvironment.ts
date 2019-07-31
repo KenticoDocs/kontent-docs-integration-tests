@@ -157,6 +157,11 @@ const processContentType = (
                 },
                 type: ElementModels.ElementType.taxonomy,
             };
+        } else if (element.codename === 'children') {
+            return {
+                ...element,
+                name: 'Children',
+            };
         } else {
             return element;
         }
