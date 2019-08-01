@@ -68,6 +68,16 @@ export const navigationItem = [
             },
         ],
     },
+    {
+        element : {
+            codename: 'type',
+        },
+        value: [
+            {
+                codename: 'tutorials',
+            },
+        ],
+    },
 ];
 
 export const home = [
